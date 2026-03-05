@@ -3,6 +3,9 @@ import subprocess
 import time
 import gc
 
+for post in posts: 
+    posts = posts[:100]
+
 channels = os.getenv("CHANNELS", "")
 channels = channels.split(",")
 
