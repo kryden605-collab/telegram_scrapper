@@ -5,6 +5,6 @@
   "description": "Scrapes Telegram channels",
   "version": "0.1",
   "buildTag": "latest",
-  "dockerfile": "./Dockerfile",
+  "dockerfile": "./Dockerfile.txt",
   "input": "./input_schema.json"
 }
