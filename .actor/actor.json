@@ -1,0 +1,7 @@
+{
+  "actorSpecification": 1,
+  "name": "telegram-monitor",
+  "title": "Telegram monitor",
+  "description": "Scrapes telegram channels",
+  "input": "./input_schema.json"
+}
