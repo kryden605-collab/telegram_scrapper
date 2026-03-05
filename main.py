@@ -1,60 +1,25 @@
-import subprocess
 import os
-import json
+import subprocess
 import time
-from datetime import datetime, timedelta
-from apify import Actor
+import gc
 
+channels = os.getenv("CHANNELS", "")
+channels = channels.split(",")
 
-async def main():
+for channel in channels:
 
-    async with Actor:
+    print(f"Scraping {channel}")
 
-        actor_input = await Actor.get_input() or {}
+    subprocess.run([
+        "python",
+        "telegram-scraper.py",
+        channel.strip()
+    ])
 
-        channels = actor_input.get("channels", [])
-        hours = actor_input.get("hours_back", 24)
+    # очищаємо памʼять
+    gc.collect()
 
-        since_time = datetime.utcnow() - timedelta(hours=hours)
+    # пауза щоб Telegram не блокував
+    time.sleep(5)
 
-        for channel in channels:
-
-            print(f"Scraping: {channel}")
-
-            result = subprocess.run(
-                ["python", "main.py", channel],
-                capture_output=True,
-                text=True
-            )
-
-            try:
-                posts = json.loads(result.stdout)
-            except:
-                print("Parsing error")
-                continue
-
-            for post in posts:
-
-                try:
-                    post_date = datetime.fromisoformat(post["date"])
-                except:
-                    continue
-
-                if post_date >= since_time:
-
-                    await Actor.push_data({
-                        "channel": channel,
-                        "date": post["date"],
-                        "text": post.get("text"),
-                        "views": post.get("views"),
-                        "forwards": post.get("forwards"),
-                        "replies": post.get("replies"),
-                        "link": post.get("link")
-                    })
-
-            time.sleep(5)
-
-
-if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+print("DONE")
