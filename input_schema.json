@@ -1,17 +1,20 @@
 {
- "title": "Channels",
- "type": "object",
- "schemaVersion": 1,
- "properties": {
-  "channels": {
-   "title": "Telegram channels",
-   "type": "array",
-   "description": "Channel usernames",
-   "editor": "stringList",
-   "items": {
-    "type": "string"
-   }
-  }
- },
- "required": ["channels"]
+  "title": "Telegram channels monitor",
+  "type": "object",
+  "schemaVersion": 1,
+  "properties": {
+    "channels": {
+      "title": "Channels",
+      "type": "array",
+      "description": "Telegram channel usernames",
+      "editor": "stringList"
+    },
+    "hours_back": {
+      "title": "Hours back",
+      "type": "integer",
+      "description": "How many hours back to collect posts",
+      "default": 24
+    }
+  },
+  "required": ["channels"]
 }
