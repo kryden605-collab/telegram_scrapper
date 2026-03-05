@@ -11,7 +11,7 @@ from bs4 import BeautifulSoup
 # Налаштування
 # ------------------------------
 DAYS_BACK = 1             # збирати пости за останні 24 години
-BATCH_SIZE = 50           # розмір батчів
+BATCH_SIZE = 80           # розмір батчів
 CHANNELS = [
     "https://t.me/s/channel1",
     "https://t.me/s/channel2",
