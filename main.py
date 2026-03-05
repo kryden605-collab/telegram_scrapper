@@ -13,7 +13,7 @@ CHANNELS = [
 
 # Скільки днів назад збираємо
 DAYS_BACK = 1
-BATCH_SIZE = 50  # або 80
+BATCH_SIZE = 80  # або 80
 since_date = datetime.utcnow() - timedelta(days=DAYS_BACK)
 
 all_posts = []
