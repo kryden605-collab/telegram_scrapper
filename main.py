@@ -33,7 +33,24 @@ for channel in CHANNELS:
             with open(output_file, "r", encoding="utf-8") as f:
                 posts = json.load(f)
             # Фільтруємо ще раз на випадок
-            posts = [p for p in posts if datetime.fromisoformat(p["date"]) >= since_date]
+    from dateutil import parser
+import pytz
+
+utc = pytz.UTC
+since_date = utc.localize(datetime.utcnow() - timedelta(days=DAYS_BACK))
+
+# Фільтруємо, конвертуючи всі дати у UTC
+filtered_posts = []
+for p in posts:
+    try:
+        post_date = parser.isoparse(p["date"])
+        if post_date.tzinfo is None:
+            post_date = utc.localize(post_date)
+        if post_date >= since_date:
+            filtered_posts.append(p)
+    except Exception as e:
+        print(f"Error parsing a post: {e}")
+posts = filtered_posts
             all_posts.extend(posts)
     except subprocess.CalledProcessError as e:
         print(f"Error scraping channel {channel}: {e}")
