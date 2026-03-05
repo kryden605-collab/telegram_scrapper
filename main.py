@@ -1,39 +1,60 @@
+import subprocess
+import os
+import json
+import time
+from datetime import datetime, timedelta
 from apify import Actor
-from playwright.async_api import async_playwright
+
 
 async def main():
+
     async with Actor:
-        actor_input = await Actor.get_input()
+
+        actor_input = await Actor.get_input() or {}
 
         channels = actor_input.get("channels", [])
+        hours = actor_input.get("hours_back", 24)
 
-        async with async_playwright() as p:
-            browser = await p.chromium.launch()
-            page = await browser.new_page()
+        since_time = datetime.utcnow() - timedelta(hours=hours)
 
-            for channel in channels:
+        for channel in channels:
 
-                url = f"https://t.me/s/{channel}"
-                await page.goto(url)
+            print(f"Scraping: {channel}")
 
-                posts = await page.query_selector_all(".tgme_widget_message")
+            result = subprocess.run(
+                ["python", "main.py", channel],
+                capture_output=True,
+                text=True
+            )
 
-                for post in posts:
+            try:
+                posts = json.loads(result.stdout)
+            except:
+                print("Parsing error")
+                continue
 
-                    text_el = await post.query_selector(".tgme_widget_message_text")
-                    date_el = await post.query_selector("time")
+            for post in posts:
 
-                    if text_el:
+                try:
+                    post_date = datetime.fromisoformat(post["date"])
+                except:
+                    continue
 
-                        text = await text_el.inner_text()
-                        date = await date_el.get_attribute("datetime")
+                if post_date >= since_time:
 
-                        await Actor.push_data({
-                            "channel": channel,
-                            "text": text,
-                            "date": date
-                        })
+                    await Actor.push_data({
+                        "channel": channel,
+                        "date": post["date"],
+                        "text": post.get("text"),
+                        "views": post.get("views"),
+                        "forwards": post.get("forwards"),
+                        "replies": post.get("replies"),
+                        "link": post.get("link")
+                    })
 
-            await browser.close()
+            time.sleep(5)
 
-Actor.run(main)
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(main())
