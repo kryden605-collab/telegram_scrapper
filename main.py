@@ -13,11 +13,11 @@ from apify import Actor
 # ------------------------------
 actor_input = Actor.get_input()  # отримуємо input від користувача
 CHANNELS = actor_input.get("channels", [])
-DAYS_BACK = actor_input.get("daysBack", 1)
+DAYS_BACK = 1
+utc = pytz.UTC
 BATCH_SIZE = actor_input.get("batchSize", 80)
 
-# для порівняння дат беремо UTC offset-naive
-since_date = datetime.utcnow() - timedelta(days=DAYS_BACK)
+since_date = datetime.utcnow().replace(tzinfo=utc) - timedelta(days=DAYS_BACK)
 
 # ------------------------------
 # Функція для збору постів
@@ -41,13 +41,13 @@ def fetch_posts_from_channel(url):
                 text = text_div.get_text(strip=True) if text_div else ""
 
                 # Парсимо дату
-                date_span = post_div.select_one("time")
-                if not date_span:
-                    continue
-                date_str = date_span.get("datetime")
-                post_date = parser.isoparse(date_str)
-                # UTC offset-naive
-                post_date = post_date.astimezone(pytz.UTC).replace(tzinfo=None)
+              date_span = post_div.select_one("time")
+if not date_span:
+    continue
+date_str = date_span.get("datetime")
+post_date = parser.isoparse(date_str)
+# робимо offset-aware UTC
+post_date = post_date.astimezone(utc)
 
                 if post_date < since_date:
                     continue
