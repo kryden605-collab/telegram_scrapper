@@ -6,18 +6,15 @@ from datetime import datetime, timedelta
 from dateutil import parser
 import pytz
 from bs4 import BeautifulSoup
+from apify import Actor
 
 # ------------------------------
-# Налаштування
+# Ініціалізація Apify Actor
 # ------------------------------
-DAYS_BACK = 1             # збирати пости за останні 24 години
-BATCH_SIZE = 80           # розмір батчів
-CHANNELS = [
-    "https://t.me/s/channel1",
-    "https://t.me/s/channel2",
-    "https://t.me/s/channel3",
-    # додайте до 30 каналів
-]
+actor_input = Actor.get_input()  # отримуємо input від користувача
+CHANNELS = actor_input.get("channels", [])
+DAYS_BACK = actor_input.get("daysBack", 1)
+BATCH_SIZE = actor_input.get("batchSize", 80)
 
 utc = pytz.UTC
 since_date = datetime.utcnow().replace(tzinfo=utc) - timedelta(days=DAYS_BACK)
@@ -48,7 +45,7 @@ def fetch_posts_from_channel(url):
                     date_str = date_span.get("datetime")
                     post_date = parser.isoparse(date_str)
                     if post_date.tzinfo is None:
-                        post_date = post_date.replace(tzinfo=utc)
+                        post_date = utc.localize(post_date)
                     # Фільтр за останні 24h
                     if post_date >= since_date:
                         posts.append({
