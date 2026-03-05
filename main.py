@@ -1,71 +1,90 @@
+# main.py
 import os
-import subprocess
 import json
+import requests
 from datetime import datetime, timedelta
+from dateutil import parser
+import pytz
+from bs4 import BeautifulSoup
 
-# Список каналів (можна винести у input.json або input_schema)
+# ------------------------------
+# Налаштування
+# ------------------------------
+DAYS_BACK = 1             # збирати пости за останні 24 години
+BATCH_SIZE = 50           # розмір батчів
 CHANNELS = [
-    "channel1",
-    "channel2",
-    "channel3",
-    # ... до 30 каналів
+    "https://t.me/s/channel1",
+    "https://t.me/s/channel2",
+    "https://t.me/s/channel3",
+    # додайте до 30 каналів
 ]
 
-# Скільки днів назад збираємо
-DAYS_BACK = 1
-BATCH_SIZE = 80  # або 80
-since_date = datetime.utcnow() - timedelta(days=DAYS_BACK)
-
-all_posts = []
-
-for channel in CHANNELS:
-    print(f"Scraping channel: {channel}")
-
-    # Викликаємо telegram-scraper.py через subprocess
-    try:
-        subprocess.run(
-            ["python", "telegram-scraper.py", channel],
-            check=True
-        )
-        # Читаємо результати
-        output_file = f"{channel}_posts.json"
-        if os.path.exists(output_file):
-            with open(output_file, "r", encoding="utf-8") as f:
-                posts = json.load(f)
-            # Фільтруємо ще раз на випадок
-    from dateutil import parser
-import pytz
-
 utc = pytz.UTC
-since_date = utc.localize(datetime.utcnow() - timedelta(days=DAYS_BACK))
+since_date = datetime.utcnow().replace(tzinfo=utc) - timedelta(days=DAYS_BACK)
 
-# Фільтруємо, конвертуючи всі дати у UTC
-filtered_posts = []
-for p in posts:
+# ------------------------------
+# Функція для збору постів
+# ------------------------------
+def fetch_posts_from_channel(url):
+    """
+    Scrape пости з публічного Telegram-каналу через web view.
+    Повертає список постів у форматі: {"id", "date", "text"}
+    """
+    posts = []
     try:
-        post_date = parser.isoparse(p["date"])
-        if post_date.tzinfo is None:
-            post_date = utc.localize(post_date)
-        if post_date >= since_date:
-            filtered_posts.append(p)
+        r = requests.get(url)
+        r.raise_for_status()
+        soup = BeautifulSoup(r.text, "html.parser")
+
+        for post_div in soup.select("div.tgme_widget_message_wrap"):
+            try:
+                post_id = post_div.get("data-post")
+                # Парсимо текст
+                text_div = post_div.select_one("div.tgme_widget_message_text")
+                text = text_div.get_text(strip=True) if text_div else ""
+                # Парсимо дату
+                date_span = post_div.select_one("time")
+                if date_span:
+                    date_str = date_span.get("datetime")
+                    post_date = parser.isoparse(date_str)
+                    if post_date.tzinfo is None:
+                        post_date = post_date.replace(tzinfo=utc)
+                    # Фільтр за останні 24h
+                    if post_date >= since_date:
+                        posts.append({
+                            "id": post_id,
+                            "date": post_date.isoformat(),
+                            "text": text
+                        })
+            except Exception as e:
+                print(f"Error parsing a post: {e}")
+
     except Exception as e:
-        print(f"Error parsing a post: {e}")
-posts = filtered_posts
-            all_posts.extend(posts)
-    except subprocess.CalledProcessError as e:
-        print(f"Error scraping channel {channel}: {e}")
-        continue
+        print(f"Error fetching {url}: {e}")
+    
+    return posts
+
+# ------------------------------
+# Основний цикл
+# ------------------------------
+all_posts = []
+for channel_url in CHANNELS:
+    print(f"Scraping channel: {channel_url}")
+    posts = fetch_posts_from_channel(channel_url)
+
+    # Збереження JSON
+    channel_name = channel_url.rstrip("/").split("/")[-1]
+    filename = f"{channel_name}_posts.json"
+    with open(filename, "w", encoding="utf-8") as f:
+        json.dump(posts, f, ensure_ascii=False, indent=2)
+
+    print(f"Saved {len(posts)} posts to {filename}")
+    all_posts.extend(posts)
 
 print(f"Total posts collected: {len(all_posts)}")
 
+# ------------------------------
 # Батчування
+# ------------------------------
 batches = [all_posts[i:i + BATCH_SIZE] for i in range(0, len(all_posts), BATCH_SIZE)]
-
-# Зберігаємо кожен батч у окремий файл
-for idx, batch in enumerate(batches, start=1):
-    batch_file = f"batch_{idx}.json"
-    with open(batch_file, "w", encoding="utf-8") as f:
-        json.dump(batch, f, ensure_ascii=False, indent=2)
-    print(f"Saved batch {idx} with {len(batch)} posts to {batch_file}")
-
-# Готово, тепер ці батчі можна подавати на GPT Етап 1 (екстракція)
+print(f"Total batches: {len(batches)}")
