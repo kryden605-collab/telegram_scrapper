@@ -1,60 +1,92 @@
-import subprocess
+# main.py
 import os
 import json
-import time
 from datetime import datetime, timedelta
+from dateutil import parser
+import pytz
+import requests
+from bs4 import BeautifulSoup
 from apify import Actor
 
+# ------------------------------
+# Ініціалізація Apify Actor
+# ------------------------------
+actor_input = Actor.get_input()
+CHANNELS = actor_input.get("channels", [])
+DAYS_BACK = actor_input.get("daysBack", 1)
+BATCH_SIZE = actor_input.get("batchSize", 80)
 
-async def main():
+utc = pytz.UTC
+since_date = datetime.utcnow().replace(tzinfo=utc) - timedelta(days=DAYS_BACK)
 
-    async with Actor:
+# ------------------------------
+# Функція для збору постів
+# ------------------------------
+def fetch_posts_from_channel(url):
+    """
+    Scrape пости з публічного Telegram-каналу через web view.
+    Повертає список постів у форматі: {"id", "date", "text", "media"}
+    """
+    posts = []
+    try:
+        r = requests.get(url)
+        r.raise_for_status()
+        soup = BeautifulSoup(r.text, "html.parser")
 
-        actor_input = await Actor.get_input() or {}
-
-        channels = actor_input.get("channels", [])
-        hours = actor_input.get("hours_back", 24)
-
-        since_time = datetime.utcnow() - timedelta(hours=hours)
-
-        for channel in channels:
-
-            print(f"Scraping: {channel}")
-
-            result = subprocess.run(
-                ["python", "main.py", channel],
-                capture_output=True,
-                text=True
-            )
-
+        for post_div in soup.select("div.tgme_widget_message_wrap"):
             try:
-                posts = json.loads(result.stdout)
-            except:
-                print("Parsing error")
-                continue
+                post_id = post_div.get("data-post")
+                # Текст
+                text_div = post_div.select_one("div.tgme_widget_message_text")
+                text = text_div.get_text(strip=True) if text_div else ""
 
-            for post in posts:
+                # Дата
+                date_span = post_div.select_one("time")
+                if date_span:
+                    post_date = parser.isoparse(date_span.get("datetime"))
+                    # Робимо UTC-aware, якщо потрібно
+                    if post_date.tzinfo is None:
+                        post_date = post_date.replace(tzinfo=utc)
 
-                try:
-                    post_date = datetime.fromisoformat(post["date"])
-                except:
-                    continue
+                    if post_date < since_date:
+                        continue  # Пропускаємо старі пости
 
-                if post_date >= since_time:
+                    # Збір медіа
+                    media_urls = []
+                    for img in post_div.select("a.tgme_widget_message_photo_wrap"):
+                        href = img.get("href") or img.get("data-full")
+                        if href:
+                            media_urls.append(href)
 
-                    await Actor.push_data({
-                        "channel": channel,
-                        "date": post["date"],
-                        "text": post.get("text"),
-                        "views": post.get("views"),
-                        "forwards": post.get("forwards"),
-                        "replies": post.get("replies"),
-                        "link": post.get("link")
+                    posts.append({
+                        "id": post_id,
+                        "date": post_date.isoformat(),
+                        "text": text,
+                        "media": media_urls
                     })
+            except Exception as e:
+                print(f"Error parsing a post: {e}")
 
-            time.sleep(5)
+    except Exception as e:
+        print(f"Error fetching {url}: {e}")
 
+    return posts
 
-if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+# ------------------------------
+# Основний цикл з батчуванням на диск
+# ------------------------------
+for channel_url in CHANNELS:
+    print(f"Scraping channel: {channel_url}")
+    posts = fetch_posts_from_channel(channel_url)
+
+    channel_name = channel_url.rstrip("/").split("/")[-1]
+
+    # Батчування і запис одразу на диск
+    for i in range(0, len(posts), BATCH_SIZE):
+        batch = posts[i:i + BATCH_SIZE]
+        filename = f"{channel_name}_posts_batch_{i//BATCH_SIZE + 1}.json"
+        with open(filename, "w", encoding="utf-8") as f:
+            json.dump(batch, f, ensure_ascii=False, indent=2)
+        print(f"Saved batch {i//BATCH_SIZE + 1} ({len(batch)} posts) to {filename}")
+
+    print(f"Total posts scraped from {channel_name}: {len(posts)}")
