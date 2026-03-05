@@ -1,0 +1,17 @@
+{
+ "title": "Channels",
+ "type": "object",
+ "schemaVersion": 1,
+ "properties": {
+  "channels": {
+   "title": "Telegram channels",
+   "type": "array",
+   "description": "Channel usernames",
+   "editor": "stringList",
+   "items": {
+    "type": "string"
+   }
+  }
+ },
+ "required": ["channels"]
+}

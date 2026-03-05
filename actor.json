@@ -1,0 +1,11 @@
+{
+  "actorSpecification": 1,
+  "name": "telegram-channel-scraper",
+  "title": "Telegram Channel Scraper",
+  "description": "Scrapes Telegram channels",
+  "version": "0.0",
+  "buildTag": "latest",
+  "environmentVariables": [],
+  "input": "./input_schema.json",
+  "dockerfile": "./Dockerfile"
+}
