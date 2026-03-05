@@ -1,9 +1,8 @@
 # main.py
 import os
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dateutil import parser
-import pytz
 import requests
 from bs4 import BeautifulSoup
 from apify import Actor
@@ -16,17 +15,13 @@ CHANNELS = actor_input.get("channels", [])
 DAYS_BACK = actor_input.get("daysBack", 1)
 BATCH_SIZE = actor_input.get("batchSize", 80)
 
-utc = pytz.UTC
-since_date = datetime.utcnow().replace(tzinfo=utc) - timedelta(days=DAYS_BACK)
+# Завжди використовуємо UTC-aware дату
+since_date = datetime.now(timezone.utc) - timedelta(days=DAYS_BACK)
 
 # ------------------------------
 # Функція для збору постів
 # ------------------------------
 def fetch_posts_from_channel(url):
-    """
-    Scrape пости з публічного Telegram-каналу через web view.
-    Повертає список постів у форматі: {"id", "date", "text", "media"}
-    """
     posts = []
     try:
         r = requests.get(url)
@@ -44,14 +39,18 @@ def fetch_posts_from_channel(url):
                 date_span = post_div.select_one("time")
                 if date_span:
                     post_date = parser.isoparse(date_span.get("datetime"))
-                    # Робимо UTC-aware, якщо потрібно
+
+                    # Перетворюємо на UTC-aware завжди
                     if post_date.tzinfo is None:
-                        post_date = post_date.replace(tzinfo=utc)
+                        post_date = post_date.replace(tzinfo=timezone.utc)
+                    else:
+                        post_date = post_date.astimezone(timezone.utc)
 
+                    # Фільтруємо по даті
                     if post_date < since_date:
-                        continue  # Пропускаємо старі пости
+                        continue
 
-                    # Збір медіа
+                    # Медіа
                     media_urls = []
                     for img in post_div.select("a.tgme_widget_message_photo_wrap"):
                         href = img.get("href") or img.get("data-full")
