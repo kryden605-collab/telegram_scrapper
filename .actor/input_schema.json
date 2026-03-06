@@ -1,42 +1,57 @@
 {
-    "title": "Telegram Channel Scraper",
-    "description": "Scrapes public Telegram channels for posts in the last N hours (default 24). No API keys required.",
+    "title": "Telegram OSINT Scraper → Make.com",
+    "description": "Scrapes public Telegram channels for the last N hours and sends results to Make.com for AI analysis, report generation and Telegram/Google Drive delivery.",
     "type": "object",
     "schemaVersion": 1,
     "properties": {
         "channels": {
             "title": "Telegram Channels",
             "type": "array",
-            "description": "List of public Telegram channel usernames or URLs to monitor. Accepts formats: 'channelname', '@channelname', 'https://t.me/channelname'",
+            "description": "Public Telegram channels to monitor. Accepts: 'channelname', '@channelname', 'https://t.me/channelname'",
             "editor": "stringList",
-            "prefill": [
-                "durov",
-                "telegram"
-            ],
-            "example": [
-                "bbcnews",
-                "@cnn",
-                "https://t.me/reuters"
-            ]
+            "prefill": ["bbcnews", "reuters", "telegram"]
         },
         "hoursBack": {
             "title": "Hours Back",
             "type": "integer",
-            "description": "How many hours back to monitor (default: 24 for daily monitoring)",
+            "description": "Monitoring window in hours (24 = last day)",
             "default": 24,
             "minimum": 1,
             "maximum": 168,
             "editor": "number"
         },
-        "maxPostsPerChannel": {
+        "maxPosts": {
             "title": "Max Posts Per Channel",
             "type": "integer",
-            "description": "Maximum number of posts to collect per channel",
-            "default": 200,
+            "description": "Maximum posts to collect per channel",
+            "default": 80,
             "minimum": 10,
-            "maximum": 1000,
+            "maximum": 500,
+            "editor": "number"
+        },
+        "makeWebhookUrl": {
+            "title": "Make.com Webhook URL",
+            "type": "string",
+            "description": "Custom Webhook URL from Make.com scenario. Get it from: Make → your scenario → Custom Webhook module → copy URL",
+            "editor": "textfield",
+            "example": "https://hook.eu2.make.com/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        },
+        "makeWebhookSecret": {
+            "title": "Webhook Secret (optional)",
+            "type": "string",
+            "description": "Optional shared secret sent as X-Webhook-Secret header. Set the same value in your Make.com webhook to verify requests.",
+            "editor": "textfield",
+            "isSecret": true
+        },
+        "maxPostsPerWebhook": {
+            "title": "Posts Per Webhook Batch",
+            "type": "integer",
+            "description": "Split posts into batches of this size. Make.com has ~5MB payload limit per trigger. Recommended: 100",
+            "default": 100,
+            "minimum": 10,
+            "maximum": 500,
             "editor": "number"
         }
     },
-    "required": ["channels"]
+    "required": ["channels", "makeWebhookUrl"]
 }
