@@ -1,0 +1,15 @@
+{
+    "actorSpecification": 1,
+    "name": "telegram-channel-scraper",
+    "title": "Telegram Public Channel Scraper",
+    "description": "Daily monitor of public Telegram channels. Scrapes text posts from the last 24h. No API keys, no Telethon.",
+    "version": "1.0",
+    "buildTag": "latest",
+    "environmentVariables": [],
+    "defaultRunOptions": {
+        "build": "latest",
+        "timeoutSecs": 3600,
+        "memoryMbytes": 512
+    },
+    "input": "./input_schema.json"
+}
