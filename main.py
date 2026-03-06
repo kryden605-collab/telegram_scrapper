@@ -28,30 +28,21 @@ def scrape_channel(channel, max_posts):
         date_el = msg.select_one("time")
 
         text = text_el.get_text(" ", strip=True) if text_el else ""
+        date = date_el["datetime"] if date_el and date_el.has_attr("datetime") else None
 
-        date = None
-        if date_el and date_el.has_attr("datetime"):
-            date = date_el["datetime"]
-
-        link = None
         link_el = msg.select_one(".tgme_widget_message_date")
-        if link_el and link_el.get("href"):
-            link = link_el["href"]
+        link = link_el["href"] if link_el and link_el.get("href") else None
 
-        views = None
         views_el = msg.select_one(".tgme_widget_message_views")
-        if views_el:
-            views = views_el.text.strip()
+        views = views_el.text.strip() if views_el else None
 
-        post = {
+        posts.append({
             "channel": channel,
             "date": date,
             "text": text,
             "views": views,
             "url": link
-        }
-
-        posts.append(post)
+        })
 
     return posts
 
@@ -71,18 +62,14 @@ async def main():
 
             print(f"Scraping {channel}")
 
-            try:
-                posts = scrape_channel(channel, max_posts)
+            posts = scrape_channel(channel, max_posts)
 
-                for post in posts:
-                    await Actor.push_data(post)
+            for post in posts:
+                await Actor.push_data(post)
 
-                print(f"{len(posts)} posts saved")
+            print(f"{len(posts)} posts saved")
 
-                total += len(posts)
-
-            except Exception as e:
-                print(f"Error scraping {channel}: {e}")
+            total += len(posts)
 
         print(f"Total posts collected: {total}")
 
