@@ -1,19 +1,22 @@
 {
-  "title": "Telegram channels monitor",
+  "title": "Telegram Channel Scraper",
   "type": "object",
   "schemaVersion": 1,
   "properties": {
     "channels": {
-      "title": "Channels",
+      "title": "Telegram channels",
       "type": "array",
-      "description": "Telegram channel usernames",
-      "editor": "stringList"
+      "description": "List of Telegram channel usernames",
+      "editor": "stringList",
+      "prefill": [
+        "belta_telegramm",
+        "pul_1"
+      ]
     },
-    "hours_back": {
-      "title": "Hours back",
+    "maxPosts": {
+      "title": "Max posts per channel",
       "type": "integer",
-      "description": "How many hours back to collect posts",
-      "default": 24
+      "default": 80
     }
   },
   "required": ["channels"]
