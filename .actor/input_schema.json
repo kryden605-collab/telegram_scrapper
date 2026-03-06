@@ -7,11 +7,7 @@
       "title": "Telegram channels",
       "type": "array",
       "description": "List of Telegram channel usernames",
-      "editor": "stringList",
-      "prefill": [
-        "belta_telegramm",
-        "pul_1"
-      ]
+      "editor": "stringList"
     },
     "maxPosts": {
       "title": "Max posts per channel",
