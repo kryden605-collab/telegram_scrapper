@@ -1,86 +1,91 @@
 import requests
-import json
-import re
-from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
 from apify import Actor
+
+
+def scrape_channel(channel, max_posts):
+    url = f"https://t.me/s/{channel}"
+
+    headers = {
+        "User-Agent": "Mozilla/5.0"
+    }
+
+    response = requests.get(url, headers=headers, timeout=30)
+
+    if response.status_code != 200:
+        print(f"Failed to fetch {channel}")
+        return []
+
+    soup = BeautifulSoup(response.text, "html.parser")
+
+    messages = soup.select(".tgme_widget_message")
+
+    posts = []
+
+    for msg in messages[:max_posts]:
+
+        text_el = msg.select_one(".tgme_widget_message_text")
+        date_el = msg.select_one("time")
+
+        text = text_el.get_text(" ", strip=True) if text_el else ""
+
+        date = None
+        if date_el and date_el.has_attr("datetime"):
+            date = date_el["datetime"]
+
+        link = None
+        link_el = msg.select_one(".tgme_widget_message_date")
+        if link_el and link_el.get("href"):
+            link = link_el["href"]
+
+        views = None
+        views_el = msg.select_one(".tgme_widget_message_views")
+        if views_el:
+            views = views_el.text.strip()
+
+        post = {
+            "channel": channel,
+            "date": date,
+            "text": text,
+            "views": views,
+            "url": link
+        }
+
+        posts.append(post)
+
+    return posts
 
 
 async def main():
 
     async with Actor:
-        actor_input = await Actor.get_input() or {}
 
-        channels = actor_input.get("channels", [])
-        days_back = actor_input.get("daysBack", 1)
+        input_data = await Actor.get_input() or {}
 
-        cutoff_time = datetime.utcnow() - timedelta(days=days_back)
+        channels = input_data.get("channels", [])
+        max_posts = input_data.get("maxPosts", 80)
 
-        all_posts = []
+        total = 0
 
         for channel in channels:
 
-            channel = channel.replace("https://t.me/", "").replace("@", "")
-            url = f"https://t.me/s/{channel}"
-
-            print(f"Scraping channel: {channel}")
+            print(f"Scraping {channel}")
 
             try:
+                posts = scrape_channel(channel, max_posts)
 
-                response = requests.get(url, timeout=20)
-                soup = BeautifulSoup(response.text, "html.parser")
+                for post in posts:
+                    await Actor.push_data(post)
 
-                messages = soup.select(".tgme_widget_message")
+                print(f"{len(posts)} posts saved")
 
-                for msg in messages:
-
-                    try:
-
-                        post_id = msg.get("data-post")
-
-                        time_tag = msg.select_one("time")
-
-                        if not time_tag:
-                            continue
-
-                        date_str = time_tag.get("datetime")
-
-                        post_date = datetime.fromisoformat(
-                            date_str.replace("Z", "+00:00")
-                        ).replace(tzinfo=None)
-
-                        if post_date < cutoff_time:
-                            continue
-
-                        text_block = msg.select_one(".tgme_widget_message_text")
-
-                        text = ""
-                        if text_block:
-                            text = text_block.get_text(" ", strip=True)
-
-                        post_link = f"https://t.me/{post_id}"
-
-                        post_data = {
-                            "channel": channel,
-                            "id": post_id,
-                            "date": post_date.isoformat(),
-                            "text": text,
-                            "url": post_link
-                        }
-
-                        await Actor.push_data(post_data)
-
-                        all_posts.append(post_data)
-
-                    except Exception as e:
-                        print(f"Post parse error: {e}")
+                total += len(posts)
 
             except Exception as e:
-                print(f"Channel error: {e}")
+                print(f"Error scraping {channel}: {e}")
 
-        print(f"Total posts collected: {len(all_posts)}")
+        print(f"Total posts collected: {total}")
 
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    Actor.run(main)
