@@ -1,17 +1,21 @@
 {
-  "title": "Telegram Channel Scraper",
+  "title": "Telegram Channel Scraper Input",
   "type": "object",
   "schemaVersion": 1,
   "properties": {
     "channels": {
       "title": "Telegram channels",
       "type": "array",
-      "description": "List of Telegram channel usernames",
-      "editor": "stringList"
+      "description": "List of Telegram channel usernames (without https://t.me/)",
+      "editor": "stringList",
+      "items": {
+        "type": "string"
+      }
     },
     "maxPosts": {
-      "title": "Max posts per channel",
+      "title": "Maximum posts per channel",
       "type": "integer",
+      "description": "Maximum number of latest posts to scrape from each channel",
       "default": 80
     }
   },
