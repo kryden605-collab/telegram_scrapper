@@ -75,4 +75,5 @@ async def main():
 
 
 if __name__ == "__main__":
-    Actor.run(main)
+    import asyncio
+    asyncio.run(main())
