@@ -1,4 +1,5 @@
 import asyncio
+import json
 import re
 from datetime import datetime, timezone, timedelta
 
@@ -15,15 +16,14 @@ HEADERS = {
     ),
     "Accept-Language": "en-US,en;q=0.9",
 }
-REQUEST_DELAY = 2.0   # seconds between pages
-CHANNEL_DELAY = 4.0   # seconds between channels
-MAX_RETRIES = 3
+REQUEST_DELAY       = 2.0
+CHANNEL_DELAY       = 4.0
+MAX_RETRIES         = 3
+WEBHOOK_TIMEOUT     = 60.0
+WEBHOOK_RETRY_DELAY = 10.0
 
-
-# ── helpers ──────────────────────────────────────────────────────────────────
 
 def normalize_channel(raw: str) -> str:
-    """Accept @name, https://t.me/name, t.me/name or plain name."""
     raw = raw.strip()
     match = re.search(r"(?:t\.me|telegram\.me)/([A-Za-z0-9_]+)", raw)
     if match:
@@ -40,11 +40,10 @@ def parse_datetime(value: str | None) -> datetime | None:
         return None
 
 
-def parse_views(text: str | None) -> int | None:
-    """Convert '1.2K' / '3.5M' / '42' → int."""
-    if not text:
+def parse_views(el) -> int | None:
+    if not el:
         return None
-    text = text.strip().upper().replace(",", "")
+    text = el.get_text(strip=True).upper().replace(",", "")
     try:
         if "K" in text:
             return int(float(text.replace("K", "")) * 1_000)
@@ -56,7 +55,6 @@ def parse_views(text: str | None) -> int | None:
 
 
 def extract_text(msg) -> str:
-    """Get clean post text; replace <br> with newlines."""
     el = msg.select_one(".tgme_widget_message_text")
     if not el:
         return ""
@@ -74,9 +72,7 @@ def extract_post_id(msg) -> str | None:
     return None
 
 
-# ── fetcher with retries ──────────────────────────────────────────────────────
-
-async def fetch(client: httpx.AsyncClient, url: str) -> str | None:
+async def fetch_html(client: httpx.AsyncClient, url: str) -> str | None:
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             r = await client.get(url, headers=HEADERS, timeout=30.0, follow_redirects=True)
@@ -94,8 +90,6 @@ async def fetch(client: httpx.AsyncClient, url: str) -> str | None:
     return None
 
 
-# ── per-channel scraper ───────────────────────────────────────────────────────
-
 async def scrape_channel(
     client: httpx.AsyncClient,
     channel: str,
@@ -108,10 +102,10 @@ async def scrape_channel(
     seen_ids: set[str] = set()
     stop = False
 
-    Actor.log.info(f"→ @{channel}")
+    Actor.log.info(f"-> @{channel}")
 
     while not stop and len(results) < max_posts:
-        html = await fetch(client, page_url)
+        html = await fetch_html(client, page_url)
         if not html:
             Actor.log.error(f"  Could not fetch {page_url}")
             break
@@ -130,14 +124,13 @@ async def scrape_channel(
             time_tag = msg.select_one("time")
             post_dt = parse_datetime(time_tag.get("datetime") if time_tag else None)
 
-            # stop pagination once we hit posts older than the cutoff
             if post_dt and post_dt < cutoff:
                 stop = True
                 continue
 
             text = extract_text(msg)
             if not text:
-                continue  # skip media-only posts
+                continue
 
             link_el = msg.select_one(".tgme_widget_message_date")
             results.append({
@@ -147,36 +140,62 @@ async def scrape_channel(
                 "url":         link_el.get("href") if link_el else None,
                 "date":        post_dt.isoformat() if post_dt else None,
                 "text":        text,
-                "views":       parse_views(
-                    (msg.select_one(".tgme_widget_message_views") or {}).get_text()
-                    if msg.select_one(".tgme_widget_message_views") else None
-                ),
+                "views":       parse_views(msg.select_one(".tgme_widget_message_views")),
                 "scraped_at":  datetime.now(timezone.utc).isoformat(),
             })
 
         if stop:
             break
 
-        # paginate backwards
         oldest_id = extract_post_id(messages[-1])
         if not oldest_id:
             break
         page_url = f"{base_url}?before={oldest_id}"
         await asyncio.sleep(REQUEST_DELAY)
 
-    Actor.log.info(f"  @{channel}: {len(results)} posts collected")
+    Actor.log.info(f"  @{channel}: {len(results)} posts")
     return results
 
 
-# ── actor entry point ─────────────────────────────────────────────────────────
+async def send_to_make(
+    client: httpx.AsyncClient,
+    webhook_url: str,
+    payload: dict,
+) -> bool:
+    headers = {"Content-Type": "application/json"}
+    body = json.dumps(payload, ensure_ascii=False)
+
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            r = await client.post(
+                webhook_url,
+                content=body,
+                headers=headers,
+                timeout=WEBHOOK_TIMEOUT,
+            )
+            if r.status_code in (200, 201, 202, 204):
+                Actor.log.info(f"Make.com webhook OK (HTTP {r.status_code})")
+                return True
+            else:
+                Actor.log.warning(f"Make.com HTTP {r.status_code} (attempt {attempt}): {r.text[:200]}")
+        except (httpx.TimeoutException, httpx.ConnectError) as exc:
+            Actor.log.warning(f"Webhook error attempt {attempt}: {exc}")
+
+        if attempt < MAX_RETRIES:
+            await asyncio.sleep(WEBHOOK_RETRY_DELAY * attempt)
+
+    Actor.log.error("Failed to deliver webhook to Make.com")
+    return False
+
 
 async def main():
     async with Actor:
-        actor_input = await Actor.get_input() or {}
+        inp = await Actor.get_input() or {}
 
-        raw_channels: list[str] = actor_input.get("channels", [])
-        hours_back: int         = int(actor_input.get("hoursBack", 24))
-        max_posts: int          = int(actor_input.get("maxPosts", 80))
+        raw_channels: list[str] = inp.get("channels", [])
+        hours_back: int         = int(inp.get("hoursBack", 24))
+        max_posts: int          = int(inp.get("maxPosts", 80))
+        webhook_url: str        = inp.get("makeWebhookUrl", "").strip()
 
         channels = [normalize_channel(c) for c in raw_channels if c.strip()]
 
@@ -184,10 +203,11 @@ async def main():
             Actor.log.error("No channels provided in input.")
             return
 
+        if not webhook_url:
+            Actor.log.warning("makeWebhookUrl not set — data saved to dataset only.")
+
         cutoff = datetime.now(timezone.utc) - timedelta(hours=hours_back)
-        Actor.log.info(
-            f"Channels: {len(channels)} | window: {hours_back}h | cutoff: {cutoff.isoformat()}"
-        )
+        Actor.log.info(f"Channels: {len(channels)} | window: {hours_back}h | cutoff: {cutoff.isoformat()}")
 
         all_posts: list[dict] = []
 
@@ -199,21 +219,29 @@ async def main():
                         await Actor.push_data(posts)
                     all_posts.extend(posts)
                 except Exception as exc:
-                    Actor.log.error(f"  Error scraping @{channel}: {exc}")
+                    Actor.log.error(f"Error scraping @{channel}: {exc}")
                 await asyncio.sleep(CHANNEL_DELAY)
 
-        summary = {
-            "run_at":       datetime.now(timezone.utc).isoformat(),
-            "hours_back":   hours_back,
-            "channels":     len(channels),
-            "total_posts":  len(all_posts),
-            "breakdown":    {
-                ch: sum(1 for p in all_posts if p["channel"] == ch)
-                for ch in channels
-            },
-        }
-        await Actor.set_value("SUMMARY", summary)
-        Actor.log.info(f"✅ Done. Total posts: {len(all_posts)}")
+        Actor.log.info(f"Scraping done. Total posts: {len(all_posts)}")
+
+        if webhook_url and all_posts:
+            payload = {
+                "run_at":             datetime.now(timezone.utc).isoformat(),
+                "hours_back":         hours_back,
+                "total_posts":        len(all_posts),
+                "channels_monitored": channels,
+                "breakdown": {
+                    ch: sum(1 for p in all_posts if p["channel"] == ch)
+                    for ch in channels
+                },
+                "posts": all_posts,
+            }
+            async with httpx.AsyncClient() as client:
+                await send_to_make(client, webhook_url, payload)
+        elif not all_posts:
+            Actor.log.warning("No posts collected — webhook not sent.")
+
+        Actor.log.info("Done.")
 
 
 if __name__ == "__main__":
