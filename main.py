@@ -7,7 +7,8 @@ import httpx
 from bs4 import BeautifulSoup
 from apify import Actor
 
-print("SCRIPT STARTED", flush=True)  # ← додайте цей рядок
+print("SCRIPT STARTED", flush=True)
+print("Imports OK, starting actor...", flush=True)
 
 HEADERS = {
     "User-Agent": (
@@ -191,7 +192,9 @@ async def send_to_make(
 
 async def main():
     async with Actor:
+        print("ACTOR STARTED", flush=True)
         inp = await Actor.get_input() or {}
+        print(f"INPUT: {inp}", flush=True)
 
         raw_channels: list[str] = inp.get("channels", [])
         hours_back: int         = int(inp.get("hoursBack", 24))
