@@ -7,6 +7,7 @@ import httpx
 from bs4 import BeautifulSoup
 from apify import Actor
 
+print("SCRIPT STARTED", flush=True)  # ← додайте цей рядок
 
 HEADERS = {
     "User-Agent": (
