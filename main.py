@@ -174,7 +174,7 @@ async def send_to_make(
                 timeout=WEBHOOK_TIMEOUT,
             )
             if r.status_code in (200, 201, 202, 204):
-                Actor.log.info(f"Make.com webhook OK (HTTP {r.status_code})")
+                print(f"Make.com webhook OK (HTTP {r.status_code})", flush=True)
                 return True
             else:
                 Actor.log.warning(f"Make.com HTTP {r.status_code} (attempt {attempt}): {r.text[:200]}")
@@ -184,7 +184,7 @@ async def send_to_make(
         if attempt < MAX_RETRIES:
             await asyncio.sleep(WEBHOOK_RETRY_DELAY * attempt)
 
-    Actor.log.error("Failed to deliver webhook to Make.com")
+    print("WEBHOOK FAILED", flush=True)
     return False
 
 
@@ -207,7 +207,7 @@ async def main():
             Actor.log.warning("makeWebhookUrl not set — data saved to dataset only.")
 
         cutoff = datetime.now(timezone.utc) - timedelta(hours=hours_back)
-        Actor.log.info(f"Channels: {len(channels)} | window: {hours_back}h | cutoff: {cutoff.isoformat()}")
+        print(f"Channels: {len(channels)} | window: {hours_back}h", flush=True)
 
         all_posts: list[dict] = []
 
