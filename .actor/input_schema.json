@@ -6,12 +6,14 @@
         "channels": {
             "title": "Telegram Channels",
             "type": "array",
+            "description": "List of public Telegram channels to monitor",
             "editor": "stringList",
             "prefill": ["bbcnews", "reuters"]
         },
         "hoursBack": {
             "title": "Hours Back",
             "type": "integer",
+            "description": "Monitoring window in hours",
             "default": 24,
             "minimum": 1,
             "maximum": 168,
@@ -20,6 +22,7 @@
         "maxPosts": {
             "title": "Max Posts Per Channel",
             "type": "integer",
+            "description": "Maximum posts to collect per channel",
             "default": 80,
             "minimum": 10,
             "maximum": 500,
@@ -28,6 +31,7 @@
         "makeWebhookUrl": {
             "title": "Make.com Webhook URL",
             "type": "string",
+            "description": "Custom Webhook URL from Make.com scenario",
             "editor": "textfield"
         }
     },
