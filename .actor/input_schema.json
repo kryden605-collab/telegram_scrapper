@@ -53,5 +53,5 @@
             "editor": "number"
         }
     },
-    "required": ["channels", "makeWebhookUrl"]
+    "required": ["channels"]
 }
