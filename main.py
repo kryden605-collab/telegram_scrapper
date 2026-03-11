@@ -1,5 +1,6 @@
 import asyncio
 import json
+import random
 import re
 from datetime import datetime, timezone, timedelta
 
@@ -16,11 +17,15 @@ HEADERS = {
     ),
     "Accept-Language": "en-US,en;q=0.9",
 }
-REQUEST_DELAY       = 2.0
-CHANNEL_DELAY       = 4.0
+
+REQUEST_DELAY       = 1.0   # затримка між сторінками одного каналу
+CONCURRENT_CHANNELS = 5     # кількість каналів що скрейпляться одночасно
 MAX_RETRIES         = 3
 WEBHOOK_TIMEOUT     = 60.0
 WEBHOOK_RETRY_DELAY = 10.0
+
+# Семафор для обмеження одночасних запитів
+_semaphore: asyncio.Semaphore | None = None
 
 
 def normalize_channel(raw: str) -> str:
@@ -73,14 +78,19 @@ def extract_post_id(msg) -> str | None:
 
 
 async def fetch_html(client: httpx.AsyncClient, url: str) -> str | None:
+    global _semaphore
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            r = await client.get(url, headers=HEADERS, timeout=30.0, follow_redirects=True)
+            async with _semaphore:
+                await asyncio.sleep(REQUEST_DELAY + random.uniform(0.3, 1.2))
+                r = await client.get(url, headers=HEADERS, timeout=30.0, follow_redirects=True)
+
             if r.status_code == 200:
                 return r.text
             if r.status_code == 429:
-                Actor.log.warning(f"Rate limited — waiting 30s (attempt {attempt})")
-                await asyncio.sleep(30)
+                wait = 30 + random.uniform(5, 15)
+                Actor.log.warning(f"Rate limited — waiting {wait:.0f}s (attempt {attempt})")
+                await asyncio.sleep(wait)
             else:
                 Actor.log.warning(f"HTTP {r.status_code} for {url} (attempt {attempt})")
         except (httpx.TimeoutException, httpx.ConnectError) as exc:
@@ -102,7 +112,7 @@ async def scrape_channel(
     seen_ids: set[str] = set()
     stop = False
 
-    Actor.log.info(f"-> @{channel}")
+    print(f"-> @{channel}", flush=True)
 
     while not stop and len(results) < max_posts:
         html = await fetch_html(client, page_url)
@@ -133,13 +143,15 @@ async def scrape_channel(
                 continue
 
             link_el = msg.select_one(".tgme_widget_message_date")
+            post_url = link_el.get("href") if link_el else f"https://t.me/{channel}"
+
             results.append({
                 "channel":     channel,
                 "channel_url": f"https://t.me/{channel}",
                 "post_id":     post_id,
-                "url":         link_el.get("href") if link_el else None,
+                "url":         post_url,
                 "date":        post_dt.isoformat() if post_dt else None,
-                "text": f"[{channel} | {post_dt.strftime('%d.%m.%Y %H:%M') if post_dt else ''}] {link_el.get('href') if link_el else f'https://t.me/{channel}'}\n{text}",
+                "text": f"[{channel} | {post_dt.strftime('%d.%m.%Y %H:%M') if post_dt else ''}] {post_url}\n{text}",
                 "views":       parse_views(msg.select_one(".tgme_widget_message_views")),
                 "scraped_at":  datetime.now(timezone.utc).isoformat(),
             })
@@ -151,10 +163,22 @@ async def scrape_channel(
         if not oldest_id:
             break
         page_url = f"{base_url}?before={oldest_id}"
-        await asyncio.sleep(REQUEST_DELAY)
 
-    Actor.log.info(f"  @{channel}: {len(results)} posts")
+    print(f"  @{channel}: {len(results)} posts", flush=True)
     return results
+
+
+async def scrape_channel_safe(
+    client: httpx.AsyncClient,
+    channel: str,
+    cutoff: datetime,
+    max_posts: int,
+) -> list[dict]:
+    try:
+        return await scrape_channel(client, channel, cutoff, max_posts)
+    except Exception as exc:
+        Actor.log.error(f"Error scraping @{channel}: {exc}")
+        return []
 
 
 async def send_to_make(
@@ -189,6 +213,8 @@ async def send_to_make(
 
 
 async def main():
+    global _semaphore
+
     async with Actor:
         inp = await Actor.get_input() or {}
 
@@ -207,22 +233,32 @@ async def main():
             Actor.log.warning("makeWebhookUrl not set — data saved to dataset only.")
 
         cutoff = datetime.now(timezone.utc) - timedelta(hours=hours_back)
-        print(f"Channels: {len(channels)} | window: {hours_back}h", flush=True)
+        print(f"Channels: {len(channels)} | window: {hours_back}h | concurrent: {CONCURRENT_CHANNELS}", flush=True)
+
+        _semaphore = asyncio.Semaphore(CONCURRENT_CHANNELS)
 
         all_posts: list[dict] = []
 
         async with httpx.AsyncClient() as client:
-            for channel in channels:
-                try:
-                    posts = await scrape_channel(client, channel, cutoff, max_posts)
+            for i in range(0, len(channels), CONCURRENT_CHANNELS):
+                batch = channels[i:i + CONCURRENT_CHANNELS]
+                print(f"Batch {i//CONCURRENT_CHANNELS + 1}: {batch}", flush=True)
+
+                tasks = [
+                    scrape_channel_safe(client, ch, cutoff, max_posts)
+                    for ch in batch
+                ]
+                results = await asyncio.gather(*tasks)
+
+                for posts in results:
                     if posts:
                         await Actor.push_data(posts)
                     all_posts.extend(posts)
-                except Exception as exc:
-                    Actor.log.error(f"Error scraping @{channel}: {exc}")
-                await asyncio.sleep(CHANNEL_DELAY)
 
-        Actor.log.info(f"Scraping done. Total posts: {len(all_posts)}")
+                if i + CONCURRENT_CHANNELS < len(channels):
+                    await asyncio.sleep(random.uniform(2.0, 4.0))
+
+        print(f"Scraping done. Total posts: {len(all_posts)}", flush=True)
 
         if webhook_url and all_posts:
             payload = {
@@ -241,7 +277,7 @@ async def main():
         elif not all_posts:
             Actor.log.warning("No posts collected — webhook not sent.")
 
-        Actor.log.info("Done.")
+        print("Done.", flush=True)
 
 
 if __name__ == "__main__":
