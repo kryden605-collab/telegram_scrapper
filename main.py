@@ -139,7 +139,7 @@ async def scrape_channel(
                 "post_id":     post_id,
                 "url":         link_el.get("href") if link_el else None,
                 "date":        post_dt.isoformat() if post_dt else None,
-                "text":        text,
+                "text": f"[{channel} | {post_dt.strftime('%d.%m.%Y %H:%M') if post_dt else ''}] {link_el.get('href') if link_el else f'https://t.me/{channel}'}\n{text}",
                 "views":       parse_views(msg.select_one(".tgme_widget_message_views")),
                 "scraped_at":  datetime.now(timezone.utc).isoformat(),
             })
