@@ -18,13 +18,13 @@ HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
 }
 
-REQUEST_DELAY       = 1.0   # затримка між сторінками одного каналу
-CONCURRENT_CHANNELS = 5     # кількість каналів що скрейпляться одночасно
+REQUEST_DELAY       = 1.0
+CONCURRENT_CHANNELS = 5
 MAX_RETRIES         = 3
 WEBHOOK_TIMEOUT     = 60.0
 WEBHOOK_RETRY_DELAY = 10.0
+HISTORY_DAYS        = 7
 
-# Семафор для обмеження одночасних запитів
 _semaphore: asyncio.Semaphore | None = None
 
 
@@ -181,6 +181,74 @@ async def scrape_channel_safe(
         return []
 
 
+async def load_history(store) -> list[dict]:
+    """Завантажує звіти за останні HISTORY_DAYS днів з KV Store."""
+    history = []
+    today = datetime.now(timezone.utc).date()
+
+    for days_ago in range(1, HISTORY_DAYS + 1):
+        date = today - timedelta(days=days_ago)
+        key = f"report_{date.strftime('%Y-%m-%d')}"
+        try:
+            record = await store.get_value(key)
+            if record:
+                history.append(record)
+                print(f"Loaded history: {key}", flush=True)
+        except Exception:
+            pass  # Запис не існує — пропускаємо
+
+    print(f"History loaded: {len(history)} days", flush=True)
+    return history
+
+
+async def save_today(store, all_posts: list[dict], channels: list[str]) -> None:
+    """Зберігає стислий звіт сьогоднішнього дня в KV Store."""
+    today_key = f"report_{datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
+
+    # Зберігаємо стислу версію (не повні тексти — економимо місце)
+    summary = {
+        "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+        "total_posts": len(all_posts),
+        "breakdown": {
+            ch: sum(1 for p in all_posts if p["channel"] == ch)
+            for ch in channels
+        },
+        # Перші 150 символів кожного поста для трендового порівняння
+        "posts_summary": [
+            {
+                "channel": p["channel"],
+                "url": p["url"],
+                "date": p["date"],
+                "text_preview": p["text"][:150],
+            }
+            for p in all_posts
+        ],
+    }
+
+    await store.set_value(today_key, summary)
+    print(f"Saved today: {today_key} ({len(all_posts)} posts)", flush=True)
+
+
+def build_history_context(history: list[dict]) -> str:
+    """Будує текстовий контекст з історії для передачі в OpenAI."""
+    if not history:
+        return "Історія відсутня — перший день моніторингу."
+
+    lines = []
+    for record in sorted(history, key=lambda x: x.get("date", ""), reverse=True):
+        date = record.get("date", "невідомо")
+        total = record.get("total_posts", 0)
+        breakdown = record.get("breakdown", {})
+
+        # Топ-5 найактивніших каналів того дня
+        top_channels = sorted(breakdown.items(), key=lambda x: x[1], reverse=True)[:5]
+        top_str = ", ".join(f"{ch}:{cnt}" for ch, cnt in top_channels)
+
+        lines.append(f"{date}: {total} постів | топ каналів: {top_str}")
+
+    return "\n".join(lines)
+
+
 async def send_to_make(
     client: httpx.AsyncClient,
     webhook_url: str,
@@ -237,6 +305,11 @@ async def main():
 
         _semaphore = asyncio.Semaphore(CONCURRENT_CHANNELS)
 
+        # Відкриваємо KV Store і завантажуємо історію
+        store = await Actor.open_key_value_store()
+        history = await load_history(store)
+        history_context = build_history_context(history)
+
         all_posts: list[dict] = []
 
         async with httpx.AsyncClient() as client:
@@ -260,6 +333,9 @@ async def main():
 
         print(f"Scraping done. Total posts: {len(all_posts)}", flush=True)
 
+        # Зберігаємо сьогоднішній звіт в KV Store
+        await save_today(store, all_posts, channels)
+
         if webhook_url and all_posts:
             payload = {
                 "run_at":             datetime.now(timezone.utc).isoformat(),
@@ -271,6 +347,9 @@ async def main():
                     for ch in channels
                 },
                 "posts": all_posts,
+                # Новий блок — історія для трендового аналізу
+                "history_context": history_context,
+                "history_days_available": len(history),
             }
             async with httpx.AsyncClient() as client:
                 await send_to_make(client, webhook_url, payload)
