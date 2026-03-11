@@ -306,7 +306,7 @@ async def main():
         _semaphore = asyncio.Semaphore(CONCURRENT_CHANNELS)
 
         # Відкриваємо KV Store і завантажуємо історію
-        store = await Actor.open_key_value_store()
+        store = await Actor.open_key_value_store(name="osint-belarus-history")
         history = await load_history(store)
         history_context = build_history_context(history)
 
