@@ -23,7 +23,7 @@
             "title": "Max Posts Per Channel",
             "type": "integer",
             "description": "Maximum posts to collect per channel",
-            "default": 80,
+            "default": 200,
             "minimum": 10,
             "maximum": 500,
             "editor": "number"
